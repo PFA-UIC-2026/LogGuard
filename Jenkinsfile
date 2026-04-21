@@ -38,7 +38,7 @@ pipeline {
     }
 }
 
-        stage('SonarQube Analysis') {
+stage('SonarQube Analysis') {
     steps {
         echo '🔍 Running code quality analysis...'
         dir('backend') {
@@ -46,7 +46,7 @@ pipeline {
                 mvn sonar:sonar \
                     -Dsonar.projectKey=logguard-backend \
                     -Dsonar.host.url=${SONAR_URL} \
-                    -Dsonar.token=sqa_8055f593211935c8690ad58e138528b4a6d215b4
+                    -Dsonar.login=sqa_8055f593211935c8690ad58e138528b4a6d215b4
             """
         }
     }
