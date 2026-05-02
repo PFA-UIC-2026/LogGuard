@@ -76,12 +76,11 @@ stage('SonarQube Analysis') {
         }
 
         stage('Deploy') {
-            steps {
-                echo '🚀 Deploying to Kubernetes...'
-                // Will be wired to kubectl / Helm in Week 3
-                echo "Image ${DOCKER_HUB_USER}/${IMAGE_NAME}:${IMAGE_TAG} is ready for deployment"
-            }
-        }
+    steps {
+        echo '🚀 Deploying to Kubernetes...'
+        sh 'kubectl set image deployment/logguard-backend logguard-backend=skrrrrtoxx/logguard-backend:${BUILD_NUMBER}'
+    }
+}
     }
 
     post {
