@@ -10,6 +10,7 @@ volumes:
   sonarqube_logs:
   sonarqube_extensions:
   postgres_data:
+  logguard_data:
 
 
 services:
@@ -66,15 +67,13 @@ services:
       - postgres
 
   # ─────────────────────────────────────────────
-  # POSTGRES — Database for SonarQube
-  # (SonarQube needs a DB to store scan results)
+  # POSTGRES — Database for SonarQube (internal only)
+  # Not exposed to host — SonarQube reaches it via docker network
   # ─────────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
     container_name: devsentinel-postgres
     restart: unless-stopped
-    ports:
-      - "5432:5432"        # ← add this
     environment:
       - POSTGRES_USER=sonar
       - POSTGRES_PASSWORD=sonar
@@ -83,3 +82,44 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - devsentinel-net
+
+  # ─────────────────────────────────────────────
+  # LOGGUARD-DB — Database for the Spring Boot backend
+  # Access at: localhost:5432
+  # ─────────────────────────────────────────────
+  logguard-db:
+    image: postgres:15-alpine
+    container_name: devsentinel-logguard-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=logguard
+      - POSTGRES_PASSWORD=logguard
+      - POSTGRES_DB=logguard
+    volumes:
+      - logguard_data:/var/lib/postgresql/data
+    networks:
+      - devsentinel-net
+
+  # ─────────────────────────────────────────────
+  # BACKEND — Spring Boot LogGuard API
+  # Access at: http://localhost:8080
+  # Run `mvn package -DskipTests` in /backend before starting
+  # ─────────────────────────────────────────────
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: devsentinel-backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://logguard-db:5432/logguard
+      - SPRING_DATASOURCE_USERNAME=logguard
+      - SPRING_DATASOURCE_PASSWORD=logguard
+    networks:
+      - devsentinel-net
+    depends_on:
+      - logguard-db
