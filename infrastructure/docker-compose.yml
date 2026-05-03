@@ -10,8 +10,6 @@ volumes:
   sonarqube_logs:
   sonarqube_extensions:
   postgres_data:
-  logguard_data:
-
 
 services:
 
@@ -45,7 +43,7 @@ services:
   # ─────────────────────────────────────────────
   # SONARQUBE — Code Quality Gate
   # Access at: http://localhost:9000
-  # Default login: admin / admin
+  # Default login: admin / your password
   # ─────────────────────────────────────────────
   sonarqube:
     image: sonarqube:lts-community
@@ -67,8 +65,8 @@ services:
       - postgres
 
   # ─────────────────────────────────────────────
-  # POSTGRES — Database for SonarQube (internal only)
-  # Not exposed to host — SonarQube reaches it via docker network
+  # POSTGRES — Database for SonarQube only
+  # Backend database runs in Kubernetes (postgres.yaml)
   # ─────────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
@@ -82,44 +80,3 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - devsentinel-net
-
-  # ─────────────────────────────────────────────
-  # LOGGUARD-DB — Database for the Spring Boot backend
-  # Access at: localhost:5432
-  # ─────────────────────────────────────────────
-  logguard-db:
-    image: postgres:15-alpine
-    container_name: devsentinel-logguard-db
-    restart: unless-stopped
-    ports:
-      - "5432:5432"
-    environment:
-      - POSTGRES_USER=logguard
-      - POSTGRES_PASSWORD=logguard
-      - POSTGRES_DB=logguard
-    volumes:
-      - logguard_data:/var/lib/postgresql/data
-    networks:
-      - devsentinel-net
-
-  # ─────────────────────────────────────────────
-  # BACKEND — Spring Boot LogGuard API
-  # Access at: http://localhost:8080
-  # Run `mvn package -DskipTests` in /backend before starting
-  # ─────────────────────────────────────────────
-  backend:
-    build:
-      context: ../backend
-      dockerfile: Dockerfile
-    container_name: devsentinel-backend
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    environment:
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://logguard-db:5432/logguard
-      - SPRING_DATASOURCE_USERNAME=logguard
-      - SPRING_DATASOURCE_PASSWORD=logguard
-    networks:
-      - devsentinel-net
-    depends_on:
-      - logguard-db
