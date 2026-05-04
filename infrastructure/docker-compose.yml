@@ -11,7 +11,6 @@ volumes:
   sonarqube_extensions:
   postgres_data:
 
-
 services:
 
   # ─────────────────────────────────────────────
@@ -44,7 +43,7 @@ services:
   # ─────────────────────────────────────────────
   # SONARQUBE — Code Quality Gate
   # Access at: http://localhost:9000
-  # Default login: admin / admin
+  # Default login: admin / your password
   # ─────────────────────────────────────────────
   sonarqube:
     image: sonarqube:lts-community
@@ -66,8 +65,8 @@ services:
       - postgres
 
   # ─────────────────────────────────────────────
-  # POSTGRES — Database for SonarQube (internal only)
-  # Not exposed to host — SonarQube reaches it via docker network
+  # POSTGRES — Database for SonarQube only
+  # Backend database runs in Kubernetes (postgres.yaml)
   # ─────────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
@@ -81,4 +80,3 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - devsentinel-net
-
