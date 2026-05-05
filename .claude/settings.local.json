@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"https://api.github.com/repos/PFA-UIC-2026/LogGuard/commits?per_page=10\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s \"https://api.github.com/repos/PFA-UIC-2026/LogGuard/contents/backend/src/main/resources\")",
+      "Bash(python3 -c \"import sys,json; [print\\(f['type'], f['name']\\) for f in json.load\\(sys.stdin\\)]\")",
+      "Bash(curl -s \"https://api.github.com/orgs/PFA-UIC-2026/members\")",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(m['login']\\) for m in data] if isinstance\\(data, list\\) else print\\(data.get\\('message',''\\)\\)\")",
+      "Bash(curl -s \"https://api.github.com/repos/PFA-UIC-2026/LogGuard/contents/backend/src/main/resources/application.yml\")",
+      "Bash(python3 -c \"import sys,json,base64; print\\(base64.b64decode\\(json.load\\(sys.stdin\\)['content']\\).decode\\(\\)\\)\")",
+      "Bash(curl -s \"https://api.github.com/repos/PFA-UIC-2026/LogGuard/contents/backend/src/main/java\")",
+      "Bash(curl -s \"https://api.github.com/repos/PFA-UIC-2026/LogGuard/contents/infrastructure/jenkins\")",
+      "Bash(curl -s \"https://api.github.com/repos/PFA-UIC-2026/LogGuard/contents/backend/src/test/resources/application.yml\")"
+    ]
+  }
+}
