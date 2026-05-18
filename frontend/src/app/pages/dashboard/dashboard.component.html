@@ -1,0 +1,138 @@
+<div class="lg-page">
+
+  <div class="lg-page-head">
+    <div>
+      <h1>Dashboard</h1>
+      <p>System overview &amp; recent activity</p>
+    </div>
+    <span class="meta">LogGuard · Real-time monitoring</span>
+  </div>
+
+  @if (loading) {
+    <div class="lg-loading">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M12 3a9 9 0 1 0 9 9"/>
+      </svg>
+      Loading…
+    </div>
+  } @else if (error) {
+    <div class="lg-empty">Could not reach the backend. Make sure the API is running on port 8080.</div>
+  } @else {
+
+    <!-- KPI row -->
+    <div class="lg-grid k4" style="margin-bottom:20px">
+
+      <div class="lg-kpi">
+        <div class="label">Total Logs</div>
+        <div class="value">{{ totalLogs }}</div>
+      </div>
+
+      <div class="lg-kpi">
+        <div class="label">Anomalies</div>
+        <div class="value" [style.color]="totalAnomalies > 0 ? 'var(--warn)' : 'var(--tx-1)'">{{ totalAnomalies }}</div>
+      </div>
+
+      <div class="lg-kpi">
+        <div class="label">Open Alerts</div>
+        <div class="value" [style.color]="openAlerts > 0 ? 'var(--crit)' : 'var(--ok)'">{{ openAlerts }}</div>
+      </div>
+
+      <div class="lg-kpi">
+        <div class="label">Critical</div>
+        <div class="value" [style.color]="criticalAnomalies > 0 ? 'var(--crit)' : 'var(--tx-1)'">{{ criticalAnomalies }}</div>
+      </div>
+
+    </div>
+
+    <!-- Tables row -->
+    <div class="lg-grid k2">
+
+      <!-- Recent Logs -->
+      <div class="lg-card">
+        <div class="lg-cardhead">
+          <div>
+            <h3>Recent Logs</h3>
+            <div class="sub">Last 5 entries</div>
+          </div>
+          <a class="lg-btn sm" routerLink="/logs">View all</a>
+        </div>
+        <div class="lg-cardbody" style="padding:0; overflow:auto">
+          @if (recentLogs.length === 0) {
+            <div class="lg-empty">No logs ingested yet.</div>
+          } @else {
+            <table class="lg-table">
+              <thead>
+                <tr>
+                  <th>Level</th>
+                  <th>Source</th>
+                  <th>Message</th>
+                  <th>Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of recentLogs; track row.id) {
+                  <tr>
+                    <td>
+                      <span class="lg-badge" [ngClass]="levelTone(row.level)">
+                        <span class="dot"></span>{{ row.level }}
+                      </span>
+                    </td>
+                    <td class="mono dim trunc" style="max-width:110px">{{ row.source }}</td>
+                    <td class="trunc" style="max-width:180px">{{ row.message }}</td>
+                    <td class="mono dim" style="white-space:nowrap">{{ row.timestamp | date:'HH:mm:ss' }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        </div>
+      </div>
+
+      <!-- Recent Alerts -->
+      <div class="lg-card">
+        <div class="lg-cardhead">
+          <div>
+            <h3>Recent Alerts</h3>
+            <div class="sub">Last 5 entries</div>
+          </div>
+          <a class="lg-btn sm" routerLink="/alerts">View all</a>
+        </div>
+        <div class="lg-cardbody" style="padding:0; overflow:auto">
+          @if (recentAlerts.length === 0) {
+            <div class="lg-empty">No alerts yet.</div>
+          } @else {
+            <table class="lg-table">
+              <thead>
+                <tr>
+                  <th>Severity</th>
+                  <th>Message</th>
+                  <th>Status</th>
+                  <th>Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of recentAlerts; track row.id) {
+                  <tr>
+                    <td>
+                      <span class="lg-badge" [ngClass]="severityTone(row.severity)">
+                        <span class="dot"></span>{{ row.severity }}
+                      </span>
+                    </td>
+                    <td class="trunc" style="max-width:180px">{{ row.message }}</td>
+                    <td>
+                      <span class="lg-badge" [ngClass]="statusTone(row.status)">{{ row.status }}</span>
+                    </td>
+                    <td class="mono dim" style="white-space:nowrap">{{ row.createdAt | date:'HH:mm:ss' }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        </div>
+      </div>
+
+    </div>
+
+  }
+
+</div>

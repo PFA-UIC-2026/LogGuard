@@ -42,12 +42,14 @@ stage('SonarQube Analysis') {
     steps {
         echo '🔍 Running code quality analysis...'
         dir('backend') {
-            sh """
-                mvn sonar:sonar \
-                    -Dsonar.projectKey=logguard-backend \
-                    -Dsonar.host.url=${SONAR_URL} \
-                    -Dsonar.login=sqa_8055f593211935c8690ad58e138528b4a6d215b4
-            """
+            withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+                sh """
+                    mvn sonar:sonar \
+                        -Dsonar.projectKey=logguard-backend \
+                        -Dsonar.host.url=${SONAR_URL} \
+                        -Dsonar.login=${SONAR_TOKEN}
+                """
+            }
         }
     }
 }
@@ -78,7 +80,13 @@ stage('SonarQube Analysis') {
         stage('Deploy') {
     steps {
         echo '🚀 Deploying to Kubernetes...'
-        sh 'kubectl set image deployment/logguard-backend logguard-backend=skrrrrtoxx/logguard-backend:${BUILD_NUMBER}'
+        sh "kubectl set image deployment/logguard-backend logguard-backend=skrrrrtoxx/logguard-backend:${BUILD_NUMBER}"
+    }
+    post {
+        failure {
+            sh 'kubectl rollout undo deployment/logguard-backend'
+            echo '⏪ Rolled back to previous deployment.'
+        }
     }
 }
     }

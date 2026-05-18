@@ -1,0 +1,101 @@
+<div class="lg-page">
+
+  <div class="lg-page-head">
+    <div>
+      <h1>Settings</h1>
+      <p>Account &amp; system configuration</p>
+    </div>
+  </div>
+
+  <div class="lg-grid k2" style="max-width:860px">
+
+    <!-- Profile card -->
+    <div class="lg-card">
+      <div class="lg-cardhead">
+        <div>
+          <h3>Account</h3>
+          <div class="sub">Logged-in user</div>
+        </div>
+      </div>
+      <div class="lg-cardbody">
+        <div class="profile-row">
+          <div class="lg-avatar large">{{ auth.currentUser()?.username?.[0]?.toUpperCase() ?? 'U' }}</div>
+          <div class="profile-info">
+            <div class="profile-name">{{ auth.currentUser()?.username ?? '—' }}</div>
+            <div class="profile-role">{{ auth.currentUser()?.role ?? '' }}</div>
+          </div>
+        </div>
+
+        <div class="info-grid">
+          <div class="info-row">
+            <span class="info-label">User ID</span>
+            <span class="info-value mono">#{{ auth.currentUser()?.id ?? '—' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Role</span>
+            <span class="info-value mono">{{ auth.currentUser()?.role ?? '—' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Token</span>
+            <span class="info-value mono dim">Stored in localStorage</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Expiry</span>
+            <span class="info-value mono dim">24 hours</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- System card -->
+    <div class="lg-card">
+      <div class="lg-cardhead">
+        <div>
+          <h3>System</h3>
+          <div class="sub">Infrastructure endpoints</div>
+        </div>
+      </div>
+      <div class="lg-cardbody">
+
+        <div class="info-grid">
+          <div class="info-row">
+            <span class="info-label">Backend API</span>
+            <div class="info-value row-val">
+              <span class="mono">localhost:8080</span>
+              @if (backendStatus === 'checking') {
+                <span class="lg-badge">checking…</span>
+              } @else if (backendStatus === 'up') {
+                <span class="lg-badge ok"><span class="dot"></span>UP</span>
+              } @else {
+                <span class="lg-badge crit"><span class="dot"></span>DOWN</span>
+              }
+            </div>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Jenkins CI</span>
+            <span class="info-value mono dim">localhost:8090</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">SonarQube</span>
+            <span class="info-value mono dim">localhost:9000</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Database</span>
+            <span class="info-value mono dim">PostgreSQL · logguard</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">K8s Node Port</span>
+            <span class="info-value mono dim">30080</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Docker Image</span>
+            <span class="info-value mono dim">skrrrrtoxx/logguard-backend</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+</div>

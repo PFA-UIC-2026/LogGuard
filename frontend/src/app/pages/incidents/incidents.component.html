@@ -1,0 +1,71 @@
+<div class="lg-page">
+
+  <div class="lg-page-head">
+    <div>
+      <h1>Logs</h1>
+      <p>All ingested log entries</p>
+    </div>
+    @if (!loading) {
+      <span class="meta">{{ all.length }} total entries</span>
+    }
+  </div>
+
+  <!-- Level filter tabs -->
+  <div class="lg-tabs">
+    @for (lvl of levels; track lvl) {
+      <button class="lg-tab" [class.active]="activeLevel === lvl" (click)="setLevel(lvl)">
+        {{ lvl }}
+        @if (count(lvl) > 0) {
+          <span class="tab-count">{{ count(lvl) }}</span>
+        }
+      </button>
+    }
+  </div>
+
+  @if (loading) {
+    <div class="lg-loading">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M12 3a9 9 0 1 0 9 9"/>
+      </svg>
+      Loading…
+    </div>
+  } @else if (error) {
+    <div class="lg-empty">Could not reach the backend API.</div>
+  } @else {
+
+    <div class="lg-card">
+      <div class="lg-cardbody" style="padding:0; overflow:auto">
+        @if (filtered.length === 0) {
+          <div class="lg-empty">No log entries for this filter.</div>
+        } @else {
+          <table class="lg-table">
+            <thead>
+              <tr>
+                <th style="width:90px">Time</th>
+                <th style="width:80px">Level</th>
+                <th style="width:140px">Source</th>
+                <th>Message</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of filtered; track row.id) {
+                <tr>
+                  <td class="mono dim" style="white-space:nowrap">{{ row.timestamp | date:'HH:mm:ss' }}</td>
+                  <td>
+                    <span class="lg-badge" [ngClass]="levelTone(row.level)">
+                      <span class="dot"></span>{{ row.level }}
+                    </span>
+                  </td>
+                  <td class="mono dim trunc" style="max-width:140px">{{ row.source }}</td>
+                  <td class="msg-cell">{{ row.message }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </div>
+    </div>
+
+  }
+
+</div>

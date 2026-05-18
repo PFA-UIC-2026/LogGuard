@@ -1,0 +1,279 @@
+================================================================================
+  LOGGUARD — BACKEND TEAM HANDOFF
+  Written by: Frontend team
+  Date: 2026-05-12
+================================================================================
+
+This document covers what the frontend currently expects from the backend API,
+what is working correctly, what is broken or hardcoded, and what the next
+iteration needs to deliver.
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 1 — WHAT IS WORKING RIGHT NOW
+────────────────────────────────────────────────────────────────────────────────
+
+These endpoints are wired and the frontend uses them correctly:
+
+  POST /api/auth/login
+    Request : { "username": "admin", "password": "admin123" }
+    Response: { "token": "...", "expiresIn": 86400000, "user": { "id": 1, "username": "admin", "role": "ADMIN" } }
+    Status  : Works. Frontend stores token as "lg_token" and user as "lg_user" in localStorage.
+
+  GET /api/health (public, no auth)
+    Response: { "status": "UP", "service": "LogGuard Backend" }
+    Status  : Works. Frontend uses it to show backend status on the Settings page.
+
+  GET /api/alerts
+    Response: List of AlertResponse objects.
+    Status  : Works IF the Jackson date fix below is applied (see Section 2 Bug #2).
+
+  PUT /api/alerts/{id}/acknowledge
+  PUT /api/alerts/{id}/resolve
+    Status  : Works. Frontend has Acknowledge and Resolve buttons on the Alerts page
+              that call these endpoints directly.
+
+  GET /api/logs
+    Status  : Works IF the Jackson date fix below is applied (see Section 2 Bug #2).
+
+  GET /api/anomalies
+    Status  : Works IF the Jackson date fix below is applied (see Section 2 Bug #2).
+
+The JWT interceptor is correctly adding "Authorization: Bearer <token>" to every
+protected request. The 401 redirect to /login is also working.
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 2 — BUGS / CRITICAL ISSUES TO FIX NOW
+────────────────────────────────────────────────────────────────────────────────
+
+--- BUG #1 — FIELD NAME MISMATCH IN AnomalyResponse ---
+
+Backend AnomalyResponse.java returns:
+    triggerLogId  (Long)
+
+Frontend was expecting "logId" — this has now been fixed on the frontend side to
+match "triggerLogId". This is just for your awareness.
+    No action needed on backend.
+
+
+--- BUG #2 — CRITICAL: LocalDateTime serializes as an ARRAY, not a string ---
+
+Your AnomalyResponse, AlertResponse, and LogEntryResponse all use LocalDateTime.
+By default, Jackson serializes LocalDateTime as a numeric array:
+
+    "createdAt": [2025, 5, 12, 14, 30, 0]   <-- WRONG, breaks the frontend
+    "createdAt": "2025-05-12T14:30:00"       <-- CORRECT, what frontend needs
+
+The frontend uses Angular's DatePipe which expects an ISO 8601 string.
+Without the fix, all date columns on every page will show "Invalid Date".
+
+FIX — add these two lines to application.yml:
+
+    spring:
+      jackson:
+        serialization:
+          write-dates-as-timestamps: false
+
+That's it. This makes all LocalDateTime fields serialize as ISO strings automatically.
+No DTO changes needed.
+
+
+--- BUG #3 — CORS header missing for localhost:4200 ---
+
+SecurityConfig sets CORS to wildcard ("*"). This is fine for development but you
+should explicitly allow the Angular dev server and the deployed frontend URL.
+For now it works, but document the allowed origins properly before going to prod.
+
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 3 — HARDCODED THINGS THAT NEED TO CHANGE
+────────────────────────────────────────────────────────────────────────────────
+
+1. DEFAULT ADMIN CREDENTIALS (DataInitializer.java)
+   Currently hardcoded as admin / admin123.
+   This is fine for dev/demo. Before any real deployment:
+   - Add ADMIN_USERNAME and ADMIN_PASSWORD as environment variables.
+   - DataInitializer should read from env vars with a secure fallback.
+
+2. JWT SECRET FALLBACK (application.yml)
+   Currently:
+       jwt:
+         secret: ${JWT_SECRET:logguard-secret-key-must-be-at-least-32-chars!!}
+   The fallback value after the colon is used when JWT_SECRET env var is not set.
+   In production this MUST be changed — anyone who reads the source code knows
+   the secret and can forge tokens.
+   Fix: remove the fallback, make JWT_SECRET required, app should fail to start
+   if it is not set.
+       jwt:
+         secret: ${JWT_SECRET}
+
+3. ANOMALY DETECTION THRESHOLDS
+   The detection logic for KEYWORD_MATCH, ERROR_RATE_SPIKE, and REPEATED_MESSAGE
+   almost certainly has hardcoded thresholds (e.g., "more than 5 errors in 1 minute").
+   These should be configurable via application.yml or a settings table in the DB
+   so they can be tuned without redeploying.
+   For the next iteration, expose them in a config or admin endpoint.
+
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 4 — EXACT API CONTRACTS (CURRENT)
+────────────────────────────────────────────────────────────────────────────────
+
+These are the exact shapes the frontend currently maps to.
+Do not change field names without telling the frontend team.
+
+  POST /api/auth/login
+    Request body:
+        { "username": string, "password": string }
+    Response body:
+        {
+          "token": string,
+          "expiresIn": number,
+          "user": {
+            "id": number,
+            "username": string,
+            "role": "ADMIN" | "VIEWER"
+          }
+        }
+
+  GET /api/logs
+    Response body: Array of:
+        {
+          "id": number,
+          "timestamp": "2025-05-12T14:30:00",   <-- ISO string, NOT array
+          "level": "DEBUG" | "INFO" | "WARN" | "ERROR" | "FATAL",
+          "source": string,
+          "message": string
+        }
+
+  POST /api/logs  (ingest — not yet used by frontend but will be)
+    Request body:
+        {
+          "level": "DEBUG" | "INFO" | "WARN" | "ERROR" | "FATAL",
+          "source": string,           -- required
+          "message": string,          -- required
+          "rawPayload": string        -- optional
+        }
+
+  GET /api/anomalies
+    Response body: Array of:
+        {
+          "id": number,
+          "detectedAt": "2025-05-12T14:30:00",  <-- ISO string, NOT array
+          "type": "KEYWORD_MATCH" | "ERROR_RATE_SPIKE" | "REPEATED_MESSAGE",
+          "description": string,
+          "severity": "LOW" | "MEDIUM" | "HIGH" | "CRITICAL",
+          "triggerLogId": number                 <-- ID of the log that triggered this
+        }
+
+  GET /api/alerts
+  GET /api/alerts?status=OPEN
+  GET /api/alerts?status=ACKNOWLEDGED
+  GET /api/alerts?status=RESOLVED
+    Response body: Array of:
+        {
+          "id": number,
+          "createdAt": "2025-05-12T14:30:00",   <-- ISO string, NOT array
+          "severity": "LOW" | "MEDIUM" | "HIGH" | "CRITICAL",
+          "message": string,
+          "status": "OPEN" | "ACKNOWLEDGED" | "RESOLVED",
+          "anomalyId": number
+        }
+
+  PUT /api/alerts/{id}/acknowledge
+  PUT /api/alerts/{id}/resolve
+    Request body: empty (no body needed)
+    Response body: updated Alert object (same shape as above)
+
+  GET /api/health  (public)
+    Response body:
+        { "status": "UP", "service": "LogGuard Backend" }
+
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 5 — WHAT THE FRONTEND NEEDS FOR THE NEXT ITERATION
+────────────────────────────────────────────────────────────────────────────────
+
+These are not blocking right now but should be delivered in the next sprint:
+
+1. PAGINATION on GET /api/logs and GET /api/anomalies
+   Currently both return ALL records. Once there are thousands of logs this will
+   be too slow. Add standard Spring Data pagination:
+       GET /api/logs?page=0&size=50&sort=timestamp,desc
+   Response should follow Spring's Page<T> format or a simple wrapper:
+       {
+         "content": [...],
+         "totalElements": 1240,
+         "totalPages": 25,
+         "number": 0
+       }
+   The frontend will update the tables to use this once it's available.
+
+2. SORTING — all list endpoints should default to newest first.
+   Right now we do .slice().reverse() on the frontend as a workaround.
+   The backend should sort by the date field DESC by default.
+   AnomalyService already does this (findAllByOrderByDetectedAtDesc) — good.
+   Make sure LogService and AlertService do the same.
+
+3. GET /api/auth/me — not yet used in the frontend but should work.
+   Response should match UserResponse: { "id", "username", "role" }
+
+4. USER MANAGEMENT (nice to have, not critical)
+   A future settings page could allow changing passwords.
+   Endpoint draft:
+       PUT /api/users/me/password
+       Request: { "currentPassword": string, "newPassword": string }
+       Response: 200 OK or 400 with error message
+
+5. LOG INGEST ENDPOINT (POST /api/logs) — document clearly
+   This endpoint will be used by external services (Filebeat, Logstash, or direct
+   HTTP calls from apps). Make sure:
+   - It accepts the rawPayload field correctly.
+   - Anomaly detection runs synchronously on each ingested log.
+   - It returns 201 Created with the created LogEntryResponse.
+
+6. WEBSOCKET / SSE FOR LIVE UPDATES (future)
+   The frontend currently polls by navigating between pages. A future version
+   should use Server-Sent Events (SSE) or WebSocket to push new logs and alerts
+   to the dashboard in real time. Not needed now, just keep it in mind when
+   designing the service layer — avoid making the detection logic too tightly
+   coupled so a future push notification is easy to add.
+
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 6 — HOW TO TEST THE INTEGRATION RIGHT NOW
+────────────────────────────────────────────────────────────────────────────────
+
+To verify the frontend and backend work together:
+
+1. Start the backend:
+       cd backend
+       mvn spring-boot:run
+   Backend should be available at http://localhost:8080
+
+2. Start the Angular frontend:
+       cd loggerguard-frontend
+       npm install
+       ng serve
+   Frontend available at http://localhost:4200
+
+3. Login with: admin / admin123
+
+4. To create test data (the DB is empty on first run):
+   POST http://localhost:8080/api/logs
+   Header: Authorization: Bearer <token from login>
+   Body:
+       { "level": "ERROR", "source": "test-service", "message": "Connection refused to database" }
+   Repeat with different levels and messages. The anomaly detector should
+   automatically create Anomaly and Alert records when thresholds are exceeded.
+
+5. Check the Alerts page — you should see alerts appear after ERROR/FATAL logs.
+   Test the Acknowledge and Resolve buttons.
+
+6. Check the Anomalies page — triggered anomalies should appear with the
+   correct triggerLogId.
+
+7. If dates show as "Invalid Date" — apply the Jackson fix from Bug #2 above.
+
+================================================================================
+END OF DOCUMENT
+================================================================================

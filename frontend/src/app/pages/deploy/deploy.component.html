@@ -1,0 +1,93 @@
+<div class="lg-page">
+
+  <div class="lg-page-head">
+    <div>
+      <h1>Alerts</h1>
+      <p>Manage and resolve triggered alerts</p>
+    </div>
+    @if (!loading) {
+      <span class="meta">{{ count('OPEN') }} open · {{ all.length }} total</span>
+    }
+  </div>
+
+  <!-- Status filter tabs -->
+  <div class="lg-tabs">
+    @for (s of statuses; track s) {
+      <button class="lg-tab" [class.active]="activeStatus === s" (click)="setStatus(s)">
+        {{ s }}
+        @if (count(s) > 0) {
+          <span class="tab-count">{{ count(s) }}</span>
+        }
+      </button>
+    }
+  </div>
+
+  @if (loading) {
+    <div class="lg-loading">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M12 3a9 9 0 1 0 9 9"/>
+      </svg>
+      Loading…
+    </div>
+  } @else if (error) {
+    <div class="lg-empty">Could not reach the backend API.</div>
+  } @else {
+
+    <div class="lg-card">
+      <div class="lg-cardbody" style="padding:0; overflow:auto">
+        @if (filtered.length === 0) {
+          <div class="lg-empty">No alerts for this filter.</div>
+        } @else {
+          <table class="lg-table">
+            <thead>
+              <tr>
+                <th style="width:90px">Time</th>
+                <th style="width:90px">Severity</th>
+                <th>Message</th>
+                <th style="width:120px">Status</th>
+                <th style="width:180px">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of filtered; track row.id) {
+                <tr>
+                  <td class="mono dim" style="white-space:nowrap">{{ row.createdAt | date:'HH:mm:ss' }}</td>
+                  <td>
+                    <span class="lg-badge" [ngClass]="severityTone(row.severity)">
+                      <span class="dot"></span>{{ row.severity }}
+                    </span>
+                  </td>
+                  <td>{{ row.message }}</td>
+                  <td>
+                    <span class="lg-badge" [ngClass]="statusTone(row.status)">{{ row.status }}</span>
+                  </td>
+                  <td class="actions-cell">
+                    @if (row.status === 'OPEN') {
+                      <button class="lg-btn sm"
+                              [disabled]="actionLoading === row.id"
+                              (click)="acknowledge(row.id)">
+                        Acknowledge
+                      </button>
+                    }
+                    @if (row.status !== 'RESOLVED') {
+                      <button class="lg-btn sm danger"
+                              [disabled]="actionLoading === row.id"
+                              (click)="resolve(row.id)">
+                        Resolve
+                      </button>
+                    }
+                    @if (row.status === 'RESOLVED') {
+                      <span class="resolved-text">—</span>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </div>
+    </div>
+
+  }
+
+</div>

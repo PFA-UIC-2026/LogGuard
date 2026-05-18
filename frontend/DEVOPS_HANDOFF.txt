@@ -1,0 +1,465 @@
+================================================================================
+  LOGGUARD — DEVOPS TEAM HANDOFF
+  Written by: Frontend team
+  Date: 2026-05-12
+================================================================================
+
+This document covers the current CI/CD pipeline, what is working, what is broken
+or hardcoded, and a step-by-step guide for how a user deploys the LogGuard
+backend from their GitHub repository.
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 1 — INFRASTRUCTURE OVERVIEW
+────────────────────────────────────────────────────────────────────────────────
+
+The infrastructure has two layers:
+
+LAYER 1 — Docker Compose (local dev / CI environment)
+  File: infrastructure/docker-compose.yml
+  Network: devsentinel-net (bridge)
+
+  Service         Port      Purpose
+  ─────────────   ────────  ──────────────────────────────
+  Jenkins         8090      CI/CD pipeline runner
+  SonarQube       9000      Code quality gate
+  PostgreSQL      internal  SonarQube database only
+
+  Note: The backend application database (logguard) runs in Kubernetes,
+        NOT in this docker-compose. See Layer 2.
+
+LAYER 2 — Kubernetes (infrastructure/k8s/)
+  File: deployment.yaml, service.yaml, postgres.yaml
+
+  Resource                          Details
+  ─────────────────────────────────────────────────────────────────────
+  backend Deployment                image: skrrrrtoxx/logguard-backend:latest
+                                    replicas: 2 (min), 5 (max via HPA)
+                                    CPU limit: 500m, RAM limit: 512Mi
+                                    probes: /actuator/health (liveness + readiness)
+
+  backend Service                   type: NodePort
+                                    port: 80 → 8080 (container)
+                                    nodePort: 30080
+
+  PostgreSQL (logguard-db)          image: postgres:15-alpine
+                                    service: postgres-service:5432
+                                    DB: logguard, user: logguard, pass: logguard
+
+  HPA                               CPU trigger: 70%
+                                    min: 2, max: 5 replicas
+
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 2 — CURRENT CI/CD PIPELINE (Jenkinsfile)
+────────────────────────────────────────────────────────────────────────────────
+
+The Jenkinsfile is at the ROOT of the repository (not in infrastructure/).
+
+Pipeline stages in order:
+
+  Stage 1 — Checkout
+    What it does: Pulls the latest code from GitHub via "checkout scm".
+    Status: Works.
+
+  Stage 2 — Build
+    What it does: Runs "mvn clean package -DskipTests" inside the backend/ folder.
+    Output: Creates backend/target/backend-*.jar
+    Status: Works.
+
+  Stage 3 — Unit Tests
+    What it does: Currently skipped with an echo message.
+    Reason: Tests require a running database (PostgreSQL). H2 in-memory is not
+            configured for tests yet.
+    Status: SKIPPED — not working.
+    Fix needed: Add H2 dependency to pom.xml test scope and a
+                src/test/resources/application-test.yml with H2 settings.
+
+  Stage 4 — SonarQube Analysis
+    What it does: Runs "mvn sonar:sonar" against the SonarQube container.
+    SonarQube URL: http://sonarqube:9000 (uses the internal Docker network name)
+    Status: Works IF running inside the devsentinel-net Docker network.
+    PROBLEM: SonarQube token is HARDCODED in the Jenkinsfile:
+        -Dsonar.login=sqa_8055f593...
+    This is a security risk. See Section 3.
+
+  Stage 5 — Docker Build
+    What it does: Builds Docker image from backend/Dockerfile.
+    Tags both: skrrrrtoxx/logguard-backend:${BUILD_NUMBER}
+               skrrrrtoxx/logguard-backend:latest
+    Status: Works IF Docker daemon socket is mounted in Jenkins container.
+            The docker-compose.yml mounts /var/run/docker.sock — this is correct.
+
+  Stage 6 — Docker Push
+    What it does: Logs in to Docker Hub and pushes both tags.
+    Credentials: Reads from Jenkins credential store with ID "dockerhub-credentials".
+    Status: Works IF the credential has been created in Jenkins. See Section 4.
+
+  Stage 7 — Deploy
+    What it does: Runs "kubectl set image deployment/logguard-backend ..."
+                  to roll out the new image to Kubernetes.
+    Status: Works IF kubeconfig is correctly mounted and points to the right cluster.
+    PROBLEM: docker-compose.yml mounts ${USERPROFILE}/.kube which is a Windows
+             environment variable. On Linux this should be ~/.kube or $HOME/.kube.
+             See Section 3.
+
+  Post actions:
+    Success: prints a message.
+    Failure: prints a message.
+    No notifications (Slack, email) are configured yet.
+
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 3 — BUGS AND HARDCODED THINGS TO FIX
+────────────────────────────────────────────────────────────────────────────────
+
+--- BUG #1 — SonarQube token is hardcoded in Jenkinsfile ---
+
+Current (BAD):
+    sh """
+        mvn sonar:sonar \
+            -Dsonar.projectKey=logguard-backend \
+            -Dsonar.host.url=${SONAR_URL} \
+            -Dsonar.login=sqa_8055f593211935c8690ad58e138528b4a6d215b4
+    """
+
+Fix — add a Jenkins credential of type "Secret text" with ID "sonarqube-token"
+and use it like this:
+
+    withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+        sh """
+            mvn sonar:sonar \
+                -Dsonar.projectKey=logguard-backend \
+                -Dsonar.host.url=${SONAR_URL} \
+                -Dsonar.login=${SONAR_TOKEN}
+        """
+    }
+
+Also revoke and regenerate the token in SonarQube since it is now public
+in the GitHub repository.
+
+
+--- BUG #2 — Windows-only kubeconfig path in docker-compose.yml ---
+
+Current (Windows only):
+    volumes:
+      - ${USERPROFILE}/.kube:/root/.kube:ro
+
+Fix for Linux:
+    volumes:
+      - ~/.kube:/root/.kube:ro
+
+Or better, use an absolute path:
+    volumes:
+      - /root/.kube:/root/.kube:ro
+
+If the team runs this on both Windows and Linux, use an env var that each
+person sets in their shell:
+    volumes:
+      - ${KUBE_CONFIG_PATH}:/root/.kube:ro
+And document that KUBE_CONFIG_PATH must be set before running docker-compose.
+
+
+--- BUG #3 — No rollback on failed deployment ---
+
+If the new image crashes after kubectl set image, there is no automatic rollback.
+Add this to the Deploy stage post-action:
+
+    stage('Deploy') {
+        steps {
+            sh 'kubectl set image deployment/logguard-backend logguard-backend=skrrrrtoxx/logguard-backend:${BUILD_NUMBER} --record'
+        }
+        post {
+            failure {
+                sh 'kubectl rollout undo deployment/logguard-backend'
+                echo 'Rolled back to previous deployment.'
+            }
+        }
+    }
+
+--- BUG #4 — No frontend pipeline ---
+
+The Jenkinsfile only builds and deploys the backend. The Angular frontend has no
+pipeline yet. If you want the frontend to also be built and served, a second
+pipeline or an additional stage is needed. See Section 5 for the frontend notes.
+
+
+--- HARDCODED #1 — Default admin credentials in DataInitializer ---
+
+Username "admin" / password "admin123" are created on every fresh database.
+For real deployments these should be environment variables. Pass them through
+the Kubernetes deployment.yaml as env vars (already has env support for DB creds,
+just add ADMIN_USERNAME and ADMIN_PASSWORD).
+
+
+--- HARDCODED #2 — JWT secret fallback in application.yml ---
+
+    jwt:
+      secret: ${JWT_SECRET:logguard-secret-key-must-be-at-least-32-chars!!}
+
+The part after the colon is the default — anyone who reads the source can use it
+to forge JWTs. Remove the fallback:
+    jwt:
+      secret: ${JWT_SECRET}
+And add JWT_SECRET as a K8s Secret, referenced from deployment.yaml.
+
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 4 — HOW TO SET UP JENKINS FROM SCRATCH
+────────────────────────────────────────────────────────────────────────────────
+
+Prerequisites:
+  - Docker and Docker Compose installed
+  - kubectl installed and configured (kubeconfig in ~/.kube/config)
+  - A Docker Hub account with push access to skrrrrtoxx/logguard-backend
+  - A SonarQube token (generate at Settings → Security → User Tokens in SonarQube)
+
+Step 1 — Start the infrastructure
+
+    cd infrastructure
+    docker-compose up -d
+
+    Wait ~60 seconds for SonarQube to fully start (it is slow).
+    Jenkins: http://localhost:8090
+    SonarQube: http://localhost:9000
+
+Step 2 — Get the Jenkins initial admin password
+
+    docker exec devsentinel-jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+
+    Paste this into the Jenkins setup wizard at http://localhost:8090.
+    Install suggested plugins. Create your admin user.
+
+Step 3 — Add Docker Hub credentials
+
+    Jenkins → Manage Jenkins → Credentials → (global) → Add Credential
+    Kind:     Username with password
+    Username: skrrrrtoxx          (your Docker Hub username)
+    Password: <your Docker Hub password or access token>
+    ID:       dockerhub-credentials    ← this exact ID is used in the Jenkinsfile
+    Description: Docker Hub
+
+Step 4 — Add SonarQube token credential
+
+    Jenkins → Manage Jenkins → Credentials → (global) → Add Credential
+    Kind:     Secret text
+    Secret:   <paste your SonarQube token>
+    ID:       sonarqube-token
+    Description: SonarQube token
+
+    Note: First generate the token in SonarQube at http://localhost:9000
+          → My Account → Security → Generate Token
+
+Step 5 — Create the pipeline job
+
+    Jenkins → New Item
+    Name: logguard-backend
+    Type: Pipeline
+    → OK
+
+    Under "Pipeline":
+      Definition: Pipeline script from SCM
+      SCM: Git
+      Repository URL: https://github.com/PFA-UIC-2026/LogGuard
+      Branch: */main
+      Script Path: Jenkinsfile      ← this is the file at the repo root
+
+    Save.
+
+Step 6 — Trigger the first build
+
+    Click "Build Now" on the pipeline page.
+    Watch the console output. All stages should go green except "Unit Tests"
+    which is intentionally skipped.
+
+Step 7 — (Optional) Set up GitHub webhook for automatic builds on push
+
+    In GitHub → Repository → Settings → Webhooks → Add webhook
+    Payload URL: http://<your-public-ip>:8090/github-webhook/
+    Content type: application/json
+    Events: Just the push event
+    Active: checked
+
+    Note: Jenkins must be publicly reachable for GitHub to reach it.
+          For local dev, use ngrok to expose localhost:8090.
+          Command: ngrok http 8090
+
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 5 — HOW A USER DEPLOYS THEIR OWN FORKED REPO
+────────────────────────────────────────────────────────────────────────────────
+
+This is the full journey for someone who forks LogGuard and wants to run their
+own CI/CD pipeline end to end.
+
+STEP 1 — Fork the repository
+    Go to https://github.com/PFA-UIC-2026/LogGuard
+    Click Fork. You now have your own copy, e.g.:
+        https://github.com/YOUR_USERNAME/LogGuard
+
+STEP 2 — Update Docker Hub references
+    In the Jenkinsfile, change:
+        DOCKER_HUB_USER = "skrrrrtoxx"
+    To your own Docker Hub username:
+        DOCKER_HUB_USER = "your-dockerhub-username"
+
+    In infrastructure/k8s/deployment.yaml, change:
+        image: skrrrrtoxx/logguard-backend:latest
+    To:
+        image: your-dockerhub-username/logguard-backend:latest
+
+    Commit and push these changes to your fork.
+
+STEP 3 — Start the local infrastructure
+    cd infrastructure
+    docker-compose up -d
+
+    Fix the kubeconfig path first if you are on Linux (see Bug #2 above).
+
+STEP 4 — Set up Jenkins credentials
+    Follow Section 4 (Steps 2–4) using your own Docker Hub credentials
+    and a fresh SonarQube token.
+
+STEP 5 — Create the pipeline job in Jenkins
+    Same as Section 4 Step 5, but point to YOUR fork:
+        Repository URL: https://github.com/YOUR_USERNAME/LogGuard
+
+STEP 6 — Deploy the Kubernetes manifests (one time)
+    The first time only, apply the K8s manifests so the deployment exists:
+
+    kubectl apply -f infrastructure/k8s/postgres.yaml
+    kubectl apply -f infrastructure/k8s/deployment.yaml
+    kubectl apply -f infrastructure/k8s/service.yaml
+
+    Wait for pods to be ready:
+    kubectl get pods -n logguard        (or default namespace)
+
+    Verify the backend is reachable:
+    curl http://localhost:30080/api/health
+
+STEP 7 — Trigger the pipeline
+    Click "Build Now" in Jenkins or push a commit to the main branch
+    (if the webhook is set up).
+
+    The pipeline will:
+      1. Pull your latest code
+      2. Build the JAR
+      3. Run SonarQube analysis
+      4. Build Docker image with the build number tag
+      5. Push to Docker Hub (your account)
+      6. Run kubectl set image to update the K8s deployment
+
+STEP 8 — Verify the deployment
+    After the pipeline succeeds:
+
+    kubectl get pods -w                              (watch pods rollout)
+    kubectl rollout status deployment/logguard-backend
+    curl http://localhost:30080/api/health           (should return {"status":"UP"...})
+
+STEP 9 — Start the Angular frontend (local dev)
+    cd loggerguard-frontend
+    npm install
+    ng serve
+    Open http://localhost:4200
+    Login: admin / admin123
+
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 6 — WHAT IS MISSING FOR THE NEXT ITERATION
+────────────────────────────────────────────────────────────────────────────────
+
+1. FRONTEND PIPELINE
+   The Jenkinsfile has no stage for building and serving the Angular frontend.
+   Next iteration should add:
+   - Stage: Install npm deps and run "ng build --configuration production"
+   - Stage: Build a frontend Docker image (nginx serving the dist/ folder)
+   - Stage: Push frontend image to Docker Hub
+   - Stage: Apply a K8s Deployment/Service for the frontend
+
+   Suggested Dockerfile for frontend (add to repo root of angular project):
+       FROM node:20-alpine AS build
+       WORKDIR /app
+       COPY package*.json ./
+       RUN npm ci
+       COPY . .
+       RUN npx ng build --configuration production
+
+       FROM nginx:alpine
+       COPY --from=build /app/dist/loggerguard-frontend/browser /usr/share/nginx/html
+       COPY nginx.conf /etc/nginx/conf.d/default.conf
+       EXPOSE 80
+
+2. ENVIRONMENT-SPECIFIC CONFIG
+   The backend currently has all config hardcoded in application.yml with env var
+   overrides. For a proper deployment, inject all of these via K8s Secrets:
+       - JWT_SECRET
+       - SPRING_DATASOURCE_PASSWORD
+       - ADMIN_USERNAME / ADMIN_PASSWORD
+   Use "kubectl create secret generic logguard-secrets --from-env-file=.env"
+
+3. UNIT TESTS IN CI
+   Tests are currently skipped. To fix:
+   - Add H2 in-memory DB dependency to pom.xml:
+         <dependency>
+             <groupId>com.h2database</groupId>
+             <artifactId>h2</artifactId>
+             <scope>test</scope>
+         </dependency>
+   - Create src/test/resources/application-test.yml with:
+         spring:
+           datasource:
+             url: jdbc:h2:mem:testdb
+             driver-class-name: org.h2.Driver
+           jpa:
+             hibernate:
+               ddl-auto: create-drop
+   - Add @ActiveProfiles("test") to test classes
+   Then remove the "skipped" echo and let the tests actually run.
+
+4. NOTIFICATIONS ON PIPELINE FAILURE
+   Currently there is only an echo on failure. Add a notification:
+   - Email: emailext plugin
+   - Slack: slackSend plugin (install via Jenkins plugin manager)
+   Example post-failure step:
+       slackSend channel: '#logguard-ci', color: 'danger',
+                 message: "Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+
+5. SONARQUBE QUALITY GATE AS A BUILD GATE
+   Currently SonarQube analysis runs but the pipeline does not fail if quality
+   drops below the gate threshold. Add this after the analysis stage:
+       stage('Quality Gate') {
+           steps {
+               waitForQualityGate abortPipeline: true
+           }
+       }
+   Also configure the SonarQube server in Jenkins:
+       Manage Jenkins → Configure System → SonarQube servers
+       Name: SonarQube
+       URL: http://sonarqube:9000
+       Token: (use the sonarqube-token credential)
+
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 7 — QUICK REFERENCE
+────────────────────────────────────────────────────────────────────────────────
+
+  Service              URL                    Default credentials
+  ─────────────────    ──────────────────     ─────────────────────────────
+  Backend API          http://localhost:8080  N/A (JWT auth)
+  Backend via K8s      http://localhost:30080 N/A
+  Jenkins              http://localhost:8090  set during wizard
+  SonarQube            http://localhost:9000  admin / (set during first login)
+  Angular frontend     http://localhost:4200  admin / admin123
+  PostgreSQL (K8s)     postgres-service:5432  logguard / logguard
+  Docker Hub repo      hub.docker.com         skrrrrtoxx/logguard-backend
+
+  Jenkins credential IDs (must match exactly):
+    dockerhub-credentials    — Docker Hub username + password
+    sonarqube-token          — SonarQube secret text token
+
+  K8s deployment name:   logguard-backend
+  K8s namespace:         default (unless you changed it)
+  K8s node port:         30080
+
+================================================================================
+END OF DOCUMENT
+================================================================================
