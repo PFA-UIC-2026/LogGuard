@@ -19,7 +19,7 @@ services:
   # ─────────────────────────────────────────────
   jenkins:
     build:
-      context: ./jenkins
+      context: ./infrastructure/jenkins
       dockerfile: Dockerfile
     container_name: devsentinel-jenkins
     user: root
@@ -38,6 +38,9 @@ services:
     dns:
       - 8.8.8.8
       - 8.8.4.4
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "kubernetes.docker.internal:host-gateway"
     depends_on:
       - sonarqube
 
