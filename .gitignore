@@ -1,0 +1,20 @@
+# IDE / editor settings
+.vscode/
+.idea/
+
+# Java / Maven
+target/
+*.class
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Environment
+.env
+*.local
+
+# OS
+.DS_Store
